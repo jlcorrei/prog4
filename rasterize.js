@@ -1,8 +1,8 @@
 /* GLOBAL CONSTANTS AND VARIABLES */
 
 /* assignment specific globals */
-const INPUT_TRIANGLES_URL = "https://ncsucgclass.github.io/prog3/triangles.json"; // triangles file loc
-const INPUT_ELLIPSOIDS_URL = "https://ncsucgclass.github.io/prog3/ellipsoids.json"; // ellipsoids file loc
+const INPUT_TRIANGLES_URL = "https://ncsucgclass.github.io/prog4/triangles.json"; // triangles file loc
+const INPUT_ELLIPSOIDS_URL = "https://ncsucgclass.github.io/prog4/ellipsoids.json"; // ellipsoids file loc
 var defaultEye = vec3.fromValues(0.5,0.5,-0.5); // default eye position in world space
 var defaultCenter = vec3.fromValues(0.5,0.5,0.5); // default view direction in world space
 var defaultUp = vec3.fromValues(0,1,0); // default view up vector
@@ -23,6 +23,7 @@ var normalBuffers = []; // this contains normal component lists by set, in tripl
 var triSetSizes = []; // this contains the size of each triangle set
 var triangleBuffers = []; // lists of indices into vertexBuffers by set, in triples
 var viewDelta = 0; // how much to displace view with each key press
+var uvBuffers = []; // this contains texture coordinate lists by set, in doubles
 
 /* shader parameter locations */
 var vPosAttribLoc; // where to put position for vertex shader
@@ -32,11 +33,19 @@ var ambientULoc; // where to put ambient reflecivity for fragment shader
 var diffuseULoc; // where to put diffuse reflecivity for fragment shader
 var specularULoc; // where to put specular reflecivity for fragment shader
 var shininessULoc; // where to put specular exponent for fragment shader
+var vUVAttribLoc; 
+var vNormAttribLoc; 
+var textureULoc; 
+var alphaULoc; 
+var modulateLoc;
 
 /* interaction variables */
 var Eye = vec3.clone(defaultEye); // eye position in world space
 var Center = vec3.clone(defaultCenter); // view direction in world space
 var Up = vec3.clone(defaultUp); // view up vector in world space
+var modulateMode = false; // initial modulation set to false
+
+var NATURE_URL = "nature.json";
 
 // ASSIGNMENT HELPER FUNCTIONS
 
@@ -230,6 +239,16 @@ function handleKeyDown(event) {
                 vec3.set(inputEllipsoids[whichTriSet].yAxis,0,1,0);
             } // end for all ellipsoids
             break;
+        case "KeyB":
+            modulateMode = !modulateMode;
+            gl.uniform1i(modulateLoc, modulateMode);
+            break;
+        case "Digit1":
+            if (event.getModifierState("Shift"))
+                loadModels(NATURE_URL);
+                setupShaders();
+                renderModels();
+            break;
     } // end switch
 } // end handleKeyDown
 
@@ -272,8 +291,55 @@ function setupWebGL() {
  
 } // end setupWebGL
 
+// Source: https://webglfundamentals.org/webgl/lessons/webgl-cors-permission.html
+function requestCORSIfNotSameOrigin(img, url) {
+    if ((new URL(url, window.location.href)).origin !== window.location.origin) {
+      img.crossOrigin = "anonymous";
+    } else {
+        console.log("Failure");
+    }
+  }
+
+// Helper function to load textures from json file.
+function loadTexture(url) {
+    const texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    const level = 0;
+    const internalFormat = gl.RGBA;
+    const width = 1;
+    const height = 1;
+    const border = 0;
+    const srcFormat = gl.RGBA;
+    const srcType = gl.UNSIGNED_BYTE;
+    const pixel = null;
+    gl.texImage2D(gl.TEXTURE_2D, level, internalFormat, width, height, border, srcFormat, srcType, pixel);
+    const image = new Image();
+    image.onload = () => {
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+        gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+        gl.texImage2D(gl.TEXTURE_2D, level, internalFormat, srcFormat, srcType, image);
+
+        if (isPowerOf2(image.width) && isPowerOf2(image.height)) {
+            gl.generateMipmap(gl.TEXTURE_2D);
+        } else {
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        }
+    };
+    requestCORSIfNotSameOrigin(image, url);
+    image.src = url;
+    return texture;
+}
+
+// Source: https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/Tutorial/Using_textures_in_WebGL 
+function isPowerOf2(value) {
+    return (value & (value - 1)) === 0;
+}
+
 // read models in, load them into webgl buffers
-function loadModels() {
+function loadModels(url) {
     
     // make an ellipsoid, with numLongSteps longitudes.
     // start with a sphere of radius 1 at origin
@@ -354,7 +420,7 @@ function loadModels() {
         } // end catch
     } // end make ellipsoid
     
-    inputTriangles = getJSONFile(INPUT_TRIANGLES_URL,"triangles"); // read in the triangle data
+    inputTriangles = getJSONFile(url,"triangles"); // read in the triangle data
 
     try {
         if (inputTriangles == String.null)
@@ -365,29 +431,39 @@ function loadModels() {
             var vtxToAdd; // vtx coords to add to the coord array
             var normToAdd; // vtx normal to add to the coord array
             var triToAdd; // tri indices to add to the index array
+            var uvToAdd;
             var maxCorner = vec3.fromValues(Number.MIN_VALUE,Number.MIN_VALUE,Number.MIN_VALUE); // bbox corner
             var minCorner = vec3.fromValues(Number.MAX_VALUE,Number.MAX_VALUE,Number.MAX_VALUE); // other corner
         
             // process each triangle set to load webgl vertex and triangle buffers
             numTriangleSets = inputTriangles.length; // remember how many tri sets
             for (var whichSet=0; whichSet<numTriangleSets; whichSet++) { // for each tri set
-                
+                const test = -1
                 // set up hilighting, modeling translation and rotation
                 inputTriangles[whichSet].center = vec3.fromValues(0,0,0);  // center point of tri set
                 inputTriangles[whichSet].on = false; // not highlighted
                 inputTriangles[whichSet].translation = vec3.fromValues(0,0,0); // no translation
                 inputTriangles[whichSet].xAxis = vec3.fromValues(1,0,0); // model X axis
                 inputTriangles[whichSet].yAxis = vec3.fromValues(0,1,0); // model Y axis 
+                inputTriangles[whichSet].texture = loadTexture(inputTriangles[whichSet].material.texture);
+                if (inputTriangles[whichSet].texture) {
+                    console.log("Texture is valid");
+                } else {
+                    console.log("Texture is invalid");
+                }
 
                 // set up the vertex and normal arrays, define model center and axes
                 inputTriangles[whichSet].glVertices = []; // flat coord list for webgl
                 inputTriangles[whichSet].glNormals = []; // flat normal list for webgl
+                inputTriangles[whichSet].glUVs = []; 
                 var numVerts = inputTriangles[whichSet].vertices.length; // num vertices in tri set
                 for (whichSetVert=0; whichSetVert<numVerts; whichSetVert++) { // verts in set
                     vtxToAdd = inputTriangles[whichSet].vertices[whichSetVert]; // get vertex to add
                     normToAdd = inputTriangles[whichSet].normals[whichSetVert]; // get normal to add
+                    uvToAdd = inputTriangles[whichSet].uvs[whichSetVert];
                     inputTriangles[whichSet].glVertices.push(vtxToAdd[0],vtxToAdd[1],vtxToAdd[2]); // put coords in set coord list
                     inputTriangles[whichSet].glNormals.push(normToAdd[0],normToAdd[1],normToAdd[2]); // put normal in set coord list
+                    inputTriangles[whichSet].glUVs.push(uvToAdd[0], uvToAdd[1]);
                     vec3.max(maxCorner,maxCorner,vtxToAdd); // update world bounding box corner maxima
                     vec3.min(minCorner,minCorner,vtxToAdd); // update world bounding box corner minima
                     vec3.add(inputTriangles[whichSet].center,inputTriangles[whichSet].center,vtxToAdd); // add to ctr sum
@@ -398,9 +474,14 @@ function loadModels() {
                 vertexBuffers[whichSet] = gl.createBuffer(); // init empty webgl set vertex coord buffer
                 gl.bindBuffer(gl.ARRAY_BUFFER,vertexBuffers[whichSet]); // activate that buffer
                 gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(inputTriangles[whichSet].glVertices),gl.STATIC_DRAW); // data in
+                // console.log(inputTriangles[whichSet].glVertices);
                 normalBuffers[whichSet] = gl.createBuffer(); // init empty webgl set normal component buffer
                 gl.bindBuffer(gl.ARRAY_BUFFER,normalBuffers[whichSet]); // activate that buffer
                 gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(inputTriangles[whichSet].glNormals),gl.STATIC_DRAW); // data in
+                uvBuffers[whichSet] = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, uvBuffers[whichSet]);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(inputTriangles[whichSet].glUVs), gl.STATIC_DRAW);
+                // console.log(inputTriangles[whichSet].glUVs);
             
                 // set up the triangle index array, adjusting indices across sets
                 inputTriangles[whichSet].glTriangles = []; // flat index list for webgl
@@ -478,13 +559,15 @@ function setupShaders() {
     // define vertex shader in essl using es6 template strings
     var vShaderCode = `
         attribute vec3 aVertexPosition; // vertex position
-        attribute vec3 aVertexNormal; // vertex normal
+        attribute vec3 aVertexNormal; // vertex normal  
+        attribute vec2 aVertexUV;
         
         uniform mat4 umMatrix; // the model matrix
         uniform mat4 upvmMatrix; // the project view model matrix
         
         varying vec3 vWorldPos; // interpolated world position of vertex
         varying vec3 vVertexNormal; // interpolated normal for frag shader
+        varying highp vec2 vUV;
 
         void main(void) {
             
@@ -496,6 +579,7 @@ function setupShaders() {
             // vertex normal (assume no non-uniform scale)
             vec4 vWorldNormal4 = umMatrix * vec4(aVertexNormal, 0.0);
             vVertexNormal = normalize(vec3(vWorldNormal4.x,vWorldNormal4.y,vWorldNormal4.z)); 
+            vUV = aVertexUV;
         }
     `;
     
@@ -517,12 +601,18 @@ function setupShaders() {
         uniform vec3 uDiffuse; // the diffuse reflectivity
         uniform vec3 uSpecular; // the specular reflectivity
         uniform float uShininess; // the specular exponent
+        uniform sampler2D uTexture; // texture
+        uniform float uAlpha; // alpha value
+        uniform bool uModulate; // modulation mode
         
         // geometry properties
         varying vec3 vWorldPos; // world xyz of fragment
         varying vec3 vVertexNormal; // normal of fragment
+        varying highp vec2 vUV;
             
         void main(void) {
+            vec2 flippedUV = vec2(1.0 - vUV.x, vUV.y);
+            vec4 textureColor = texture2D(uTexture, flippedUV);
         
             // ambient term
             vec3 ambient = uAmbient*uLightAmbient; 
@@ -541,7 +631,12 @@ function setupShaders() {
             
             // combine to output color
             vec3 colorOut = ambient + diffuse + specular; // no specular yet
-            gl_FragColor = vec4(colorOut, 1.0); 
+
+            vec3 finalColor = uModulate ? (textureColor.rgb * colorOut) : textureColor.rgb;
+            
+            gl_FragColor = vec4(finalColor, textureColor.a * uAlpha); 
+            
+            // gl_FragColor = texture2D(uTexture, flippedUV);
         }
     `;
     
@@ -576,6 +671,8 @@ function setupShaders() {
                 gl.enableVertexAttribArray(vPosAttribLoc); // connect attrib to array
                 vNormAttribLoc = gl.getAttribLocation(shaderProgram, "aVertexNormal"); // ptr to vertex normal attrib
                 gl.enableVertexAttribArray(vNormAttribLoc); // connect attrib to array
+                vUVAttribLoc = gl.getAttribLocation(shaderProgram, "aVertexUV");
+                gl.enableVertexAttribArray(vUVAttribLoc);
                 
                 // locate vertex uniforms
                 mMatrixULoc = gl.getUniformLocation(shaderProgram, "umMatrix"); // ptr to mmat
@@ -591,6 +688,9 @@ function setupShaders() {
                 diffuseULoc = gl.getUniformLocation(shaderProgram, "uDiffuse"); // ptr to diffuse
                 specularULoc = gl.getUniformLocation(shaderProgram, "uSpecular"); // ptr to specular
                 shininessULoc = gl.getUniformLocation(shaderProgram, "uShininess"); // ptr to shininess
+                textureULoc = gl.getUniformLocation(shaderProgram, "uTexture");
+                alphaULoc = gl.getUniformLocation(shaderProgram, "uAlpha");
+                modulateLoc = gl.getUniformLocation(shaderProgram, "uModulate");
                 
                 // pass global constants into fragment uniforms
                 gl.uniform3fv(eyePositionULoc,Eye); // pass in the eye's position
@@ -598,6 +698,7 @@ function setupShaders() {
                 gl.uniform3fv(lightDiffuseULoc,lightDiffuse); // pass in the light's diffuse emission
                 gl.uniform3fv(lightSpecularULoc,lightSpecular); // pass in the light's specular emission
                 gl.uniform3fv(lightPositionULoc,lightPosition); // pass in the light's position
+                gl.uniform1i(modulateLoc, modulateMode);
             } // end if no shader program link errors
         } // end if no compile errors
     } // end try 
@@ -648,7 +749,10 @@ function renderModels() {
     window.requestAnimationFrame(renderModels); // set up frame render callback
     
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); // clear frame/depth buffers
-    
+    gl.enable(gl.DEPTH_TEST);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
     // set up projection and view
     // mat4.fromScaling(hMatrix,vec3.fromValues(-1,1,1)); // create handedness matrix
     mat4.perspective(pMatrix,0.5*Math.PI,1,0.1,10); // create projection matrix
@@ -672,12 +776,26 @@ function renderModels() {
         gl.uniform3fv(diffuseULoc,currSet.material.diffuse); // pass in the diffuse reflectivity
         gl.uniform3fv(specularULoc,currSet.material.specular); // pass in the specular reflectivity
         gl.uniform1f(shininessULoc,currSet.material.n); // pass in the specular exponent
+        var clampedAlpha = Math.max(0.0, Math.min(1.0, currSet.material.alpha));
+        gl.uniform1f(alphaULoc, clampedAlpha); 
+
+        if (clampedAlpha === 1) {
+            gl.depthMask(true);
+        } else {
+            gl.depthMask(false);
+        }
+
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, currSet.texture);
+        gl.uniform1i(textureULoc, 0);
         
         // vertex buffer: activate and feed into vertex shader
         gl.bindBuffer(gl.ARRAY_BUFFER,vertexBuffers[whichTriSet]); // activate
         gl.vertexAttribPointer(vPosAttribLoc,3,gl.FLOAT,false,0,0); // feed
         gl.bindBuffer(gl.ARRAY_BUFFER,normalBuffers[whichTriSet]); // activate
         gl.vertexAttribPointer(vNormAttribLoc,3,gl.FLOAT,false,0,0); // feed
+        gl.bindBuffer(gl.ARRAY_BUFFER, uvBuffers[whichTriSet]);
+        gl.vertexAttribPointer(vUVAttribLoc, 2, gl.FLOAT, false, 0, 0);
 
         // triangle buffer: activate and render
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,triangleBuffers[whichTriSet]); // activate
@@ -712,6 +830,7 @@ function renderModels() {
         // draw a transformed instance of the ellipsoid
         gl.drawElements(gl.TRIANGLES,triSetSizes[numTriangleSets+whichEllipsoid],gl.UNSIGNED_SHORT,0); // render
     } // end for each ellipsoid
+    gl.depthMask(true);
 } // end render model
 
 
@@ -720,8 +839,8 @@ function renderModels() {
 function main() {
   
   setupWebGL(); // set up the webGL environment
-  loadModels(); // load in the models from tri file
+  loadModels(INPUT_TRIANGLES_URL); // load in the models from tri file
   setupShaders(); // setup the webGL shaders
   renderModels(); // draw the triangles using webGL
-  
+
 } // end main
