@@ -45,7 +45,9 @@ var Center = vec3.clone(defaultCenter); // view direction in world space
 var Up = vec3.clone(defaultUp); // view up vector in world space
 var modulateMode = false; // initial modulation set to false
 
-var NATURE_URL = "nature.json";
+const NATURE_URL = "nature.json";
+const BG_URL = "https://ncsucgclass.github.io/prog3/sky.jpg";
+const NATURE_BG_URL = "island.png";
 
 // ASSIGNMENT HELPER FUNCTIONS
 
@@ -245,6 +247,7 @@ function handleKeyDown(event) {
             break;
         case "Digit1":
             if (event.getModifierState("Shift"))
+                setupWebGL(NATURE_BG_URL);
                 loadModels(NATURE_URL);
                 setupShaders();
                 renderModels();
@@ -253,7 +256,7 @@ function handleKeyDown(event) {
 } // end handleKeyDown
 
 // set up the webGL environment
-function setupWebGL() {
+function setupWebGL(url) {
     
     // Set up keys
     document.onkeydown = handleKeyDown; // call this when key pressed
@@ -264,7 +267,7 @@ function setupWebGL() {
       imageContext = imageCanvas.getContext("2d"); 
       var bkgdImage = new Image(); 
       bkgdImage.crossOrigin = "Anonymous";
-      bkgdImage.src = "https://ncsucgclass.github.io/prog3/sky.jpg";
+      bkgdImage.src = url;
       bkgdImage.onload = function(){
           var iw = bkgdImage.width, ih = bkgdImage.height;
           imageContext.drawImage(bkgdImage,0,0,iw,ih,0,0,cw,ch);   
@@ -838,7 +841,7 @@ function renderModels() {
 
 function main() {
   
-  setupWebGL(); // set up the webGL environment
+  setupWebGL(BG_URL); // set up the webGL environment
   loadModels(INPUT_TRIANGLES_URL); // load in the models from tri file
   setupShaders(); // setup the webGL shaders
   renderModels(); // draw the triangles using webGL
