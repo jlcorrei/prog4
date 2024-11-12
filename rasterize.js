@@ -298,8 +298,6 @@ function setupWebGL(url) {
 function requestCORSIfNotSameOrigin(img, url) {
     if ((new URL(url, window.location.href)).origin !== window.location.origin) {
       img.crossOrigin = "anonymous";
-    } else {
-        console.log("Failure");
     }
   }
 
@@ -440,6 +438,7 @@ function loadModels(url) {
         
             // process each triangle set to load webgl vertex and triangle buffers
             numTriangleSets = inputTriangles.length; // remember how many tri sets
+            const textures = {};
             for (var whichSet=0; whichSet<numTriangleSets; whichSet++) { // for each tri set
                 const test = -1
                 // set up hilighting, modeling translation and rotation
@@ -449,11 +448,6 @@ function loadModels(url) {
                 inputTriangles[whichSet].xAxis = vec3.fromValues(1,0,0); // model X axis
                 inputTriangles[whichSet].yAxis = vec3.fromValues(0,1,0); // model Y axis 
                 inputTriangles[whichSet].texture = loadTexture(inputTriangles[whichSet].material.texture);
-                if (inputTriangles[whichSet].texture) {
-                    console.log("Texture is valid");
-                } else {
-                    console.log("Texture is invalid");
-                }
 
                 // set up the vertex and normal arrays, define model center and axes
                 inputTriangles[whichSet].glVertices = []; // flat coord list for webgl
@@ -477,14 +471,12 @@ function loadModels(url) {
                 vertexBuffers[whichSet] = gl.createBuffer(); // init empty webgl set vertex coord buffer
                 gl.bindBuffer(gl.ARRAY_BUFFER,vertexBuffers[whichSet]); // activate that buffer
                 gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(inputTriangles[whichSet].glVertices),gl.STATIC_DRAW); // data in
-                // console.log(inputTriangles[whichSet].glVertices);
                 normalBuffers[whichSet] = gl.createBuffer(); // init empty webgl set normal component buffer
                 gl.bindBuffer(gl.ARRAY_BUFFER,normalBuffers[whichSet]); // activate that buffer
                 gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(inputTriangles[whichSet].glNormals),gl.STATIC_DRAW); // data in
                 uvBuffers[whichSet] = gl.createBuffer();
                 gl.bindBuffer(gl.ARRAY_BUFFER, uvBuffers[whichSet]);
                 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(inputTriangles[whichSet].glUVs), gl.STATIC_DRAW);
-                // console.log(inputTriangles[whichSet].glUVs);
             
                 // set up the triangle index array, adjusting indices across sets
                 inputTriangles[whichSet].glTriangles = []; // flat index list for webgl
@@ -803,6 +795,7 @@ function renderModels() {
         // triangle buffer: activate and render
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,triangleBuffers[whichTriSet]); // activate
         gl.drawElements(gl.TRIANGLES,3*triSetSizes[whichTriSet],gl.UNSIGNED_SHORT,0); // render
+
         
     } // end for each triangle set
     
